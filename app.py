@@ -14,7 +14,7 @@ SENDER_EMAIL = "o.p.f.1994@mail.ru"
 TARGET_EMAIL = "o.p.f.1994@mail.ru"
 
 # 🔑 Сюда вставьте ваш 16-значный пароль приложения из настроек Mail.ru
-SMTP_PASSWORD = "xxxx xxxx xxxx xxxx"
+SMTP_PASSWORD = "c0wehFjSL5XWQxj4VUyb"
 
 
 def send_to_email(name, phone, product_type):

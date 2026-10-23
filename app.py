@@ -1,27 +1,31 @@
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage  # Специальный импорт для фотографий
+import os
 from flask import Flask, render_template, request
+from dotenv import load_dotenv
+
+# Загружаем скрытые переменные из файла .env
+load_dotenv()
 
 app = Flask(__name__)
 
-# ⚠️ НАСТРОЙКА ПОЧТЫ MAIL.RU
+# НАСТРОЙКА ПОЧТЫ MAIL.RU (Исправлено на smtp.mail.ru)
 SMTP_SERVER = "smtp.mail.ru"
 SMTP_PORT = 465
 
-# Отправляем письмо с вашей почты самому себе
 SENDER_EMAIL = "o.p.f.1994@mail.ru"
 TARGET_EMAIL = "o.p.f.1994@mail.ru"
 
-# 🔑 Сюда вставьте ваш 16-значный пароль приложения из настроек Mail.ru
-SMTP_PASSWORD = "c0wehFjSL5XWQxj4VUyb"
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 
 
-def send_to_email(name, phone, product_type):
-    """Функция автоматической отправки заявки на ваш Email"""
+def send_to_email(name, phone, product_type, file_data=None, file_name=None):
+    """Функция автоматической отправки заявки и вложенного фото на ваш Email"""
     subject = f"🚨 Новая заявка на перила: {name}"
     body = (
-        f"Поступила новая заявка с сайта Вектор-Пролет!\n\n"
+        f"Поступила новая заявка с сайта Вектор-Пролет тк!\n\n"
         f"👤 Имя клиента: {name}\n"
         f"📞 Номер телефона: {phone}\n"
         f"📐 Что необходимо сделать: {product_type}\n\n"
@@ -34,13 +38,25 @@ def send_to_email(name, phone, product_type):
     msg['Subject'] = subject
     msg.attach(MIMEText(body, 'plain', 'utf-8'))
 
+    # 📷 ЕСЛИ КЛИЕНТ ЗАГРУЗИЛ ФОТО — ПРИКРЕПЛЯЕМ ЕГО К ПИСЬМУ
+    if file_data and file_name:
+        try:
+            image_attachment = MIMEImage(file_data)
+            image_attachment.add_header('Content-Disposition', 'attachment', filename=file_name)
+            msg.attach(image_attachment)
+            print(f"Фотография {file_name} успешно прикреплена к письму.")
+        except Exception as e:
+            print(f"Не удалось прикрепить фото к письму: {e}")
+
     try:
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             server.login(SENDER_EMAIL, SMTP_PASSWORD)
             server.sendmail(SENDER_EMAIL, TARGET_EMAIL, msg.as_string())
-        print("Заявка успешно отправлена на o.p.f.1994@mail.ru")
+        print(f"Заявка успешно отправлена на {TARGET_EMAIL}")
+        return True
     except Exception as e:
         print(f"Ошибка при отправке почты: {e}")
+        return False
 
 
 @app.route('/')
@@ -55,8 +71,27 @@ def submit_request():
         phone = request.form.get('phone')
         product_type = request.form.get('product_type')
 
-        # Запуск отправки письма
-        send_to_email(name, phone, product_type)
+        # 📥 Получаем файл фотографии из формы сайта
+        uploaded_file = request.files.get('photo')
+        file_data = None
+        file_name = None
+
+        # Если файл выбран, считываем его
+        if uploaded_file and uploaded_file.filename != '':
+            file_data = uploaded_file.read()
+            file_name = uploaded_file.filename
+
+        # Запуск отправки письма (передаем тексты и файл)
+        mail_success = send_to_email(name, phone, product_type, file_data, file_name)
+
+        if not mail_success:
+            return """
+            <div style="text-align: center; font-family: sans-serif; padding-top: 100px;">
+                <h2 style="color: #ef4444;">❌ Ошибка отправки</h2>
+                <p>Что-то пошло не так при отправке уведомления. Мы разберемся с этим. Пожалуйста, попробуйте позже.</p>
+                <a href="/">Назад</a>
+            </div>
+            """
 
         # Страница благодарности для клиента
         return """
@@ -68,6 +103,11 @@ def submit_request():
             </div>
         </div>
         """
+
+
+@app.route('/privacy')
+def privacy():
+    return render_template('privacy.html')
 
 
 if __name__ == '__main__':

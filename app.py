@@ -1,28 +1,23 @@
-import io
-import os
 import smtplib
-from email import encoders
-from email.mime.base import MIMEBase
-from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-
+from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage  # Специальный импорт для фотографий
+import os
+from flask import Flask, render_template, request
 from dotenv import load_dotenv
-from flask import Flask, flash, redirect, render_template, request, url_for
 
 # Загружаем скрытые переменные из файла .env
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "super-secret-key-for-flash")
 
-# НАСТРОЙКА ПОЧТЫ MAIL.RU
+# НАСТРОЙКА ПОЧТЫ MAIL.RU (Исправлено на smtp.mail.ru)
 SMTP_SERVER = "smtp.mail.ru"
 SMTP_PORT = 465
 
 SENDER_EMAIL = "o.p.f.1994@mail.ru"
 TARGET_EMAIL = "o.p.f.1994@mail.ru"
 
-# ВАЖНО: Здесь должен быть "Пароль для внешних приложений", а не обычный пароль от почты!
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 
 
@@ -38,71 +33,82 @@ def send_to_email(name, phone, product_type, file_data=None, file_name=None):
     )
 
     msg = MIMEMultipart()
-    msg["From"] = SENDER_EMAIL
-    msg["To"] = TARGET_EMAIL
-    msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain", "utf-8"))
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = TARGET_EMAIL
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
 
-    # 📷 НАДЕЖНОЕ ДОБАВЛЕНИЕ ЛЮБЫХ ИЗОБРАЖЕНИЙ (БЕЗ ОШИБОК 500)
+    # 📷 ЕСЛИ КЛИЕНТ ЗАГРУЗИЛ ФОТО — ПРИКРЕПЛЯЕМ ЕГО К ПИСЬМУ
     if file_data and file_name:
         try:
-            attachment = MIMEBase("application", "octet-stream")
-            attachment.set_payload(file_data)
-            encoders.encode_base64(attachment)
-            attachment.add_header(
-                "Content-Disposition", f'attachment; filename="{file_name}"'
-            )
-            msg.attach(attachment)
-            print(
-                f"Файл {file_name} успешно зашифрован и прикреплен к письму."
-            )
+            image_attachment = MIMEImage(file_data)
+            image_attachment.add_header('Content-Disposition', 'attachment', filename=file_name)
+            msg.attach(image_attachment)
+            print(f"Фотография {file_name} успешно прикреплена к письму.")
         except Exception as e:
-            print(f"Не удалось прикрепить файл к письму: {e}")
+            print(f"Не удалось прикрепить фото к письму: {e}")
 
-    # Завершение оборванного участка кода
     try:
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             server.login(SENDER_EMAIL, SMTP_PASSWORD)
             server.sendmail(SENDER_EMAIL, TARGET_EMAIL, msg.as_string())
-        print("Письмо успешно отправлено!")
+        print(f"Заявка успешно отправлена на {TARGET_EMAIL}")
         return True
     except Exception as e:
-        print(f"Ошибка при отправке письма: {e}")
+        print(f"Ошибка при отправке почты: {e}")
         return False
 
 
-# ПРИМЕР МАРШРУТА ДЛЯ ПРИЕМА ФОРМЫ С САЙТА
-@app.route("/submit-form", methods=["POST"])
-def handle_form():
-    """Принимает данные формы и передает файл из памяти (без сохранения на диск)"""
-    name = request.form.get("name")
-    phone = request.form.get("phone")
-    product_type = request.form.get("product_type")
-
-    # Получаем файл из инпута (например, <input type="file" name="photo">)
-    file = request.files.get("photo")
-
-    file_data = None
-    file_name = None
-
-    if file and file.filename != "":
-        # Читаем файл в бинарный поток в памяти сервера
-        file_data = file.read()
-        file_name = file.filename
-
-    # Вызываем функцию отправки
-    success = send_to_email(
-        name, phone, product_type, file_data=file_data, file_name=file_name
-    )
-
-    if success:
-        return "Заявка успешно отправлена! Свяжемся с вами в течение 15 минут."
-    else:
-        return (
-            "Произошла ошибка при отправке заявки. Пожалуйста, попробуйте позже.",
-            500,
-        )
+@app.route('/')
+def index():
+    return render_template('index.html')
 
 
-if __name__ == "__main__":
+@app.route('/submit-request', methods=['POST'])
+def submit_request():
+    if request.method == 'POST':
+        name = request.form.get('name')
+        phone = request.form.get('phone')
+        product_type = request.form.get('product_type')
+
+        # 📥 Получаем файл фотографии из формы сайта
+        uploaded_file = request.files.get('photo')
+        file_data = None
+        file_name = None
+
+        # Если файл выбран, считываем его
+        if uploaded_file and uploaded_file.filename != '':
+            file_data = uploaded_file.read()
+            file_name = uploaded_file.filename
+
+        # Запуск отправки письма (передаем тексты и файл)
+        mail_success = send_to_email(name, phone, product_type, file_data, file_name)
+
+        if not mail_success:
+            return """
+            <div style="text-align: center; font-family: sans-serif; padding-top: 100px;">
+                <h2 style="color: #ef4444;">❌ Ошибка отправки</h2>
+                <p>Что-то пошло не так при отправке уведомления. Мы разберемся с этим. Пожалуйста, попробуйте позже.</p>
+                <a href="/">Назад</a>
+            </div>
+            """
+
+        # Страница благодарности для клиента
+        return """
+        <div style="text-align: center; font-family: sans-serif; padding-top: 100px; background-color: #f8fafc; height: 100vh; margin: 0;">
+            <div style="background: white; display: inline-block; padding: 40px; border-radius: 10px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+                <h2 style="color: #0f172a; margin-bottom: 10px;">🔥 Заявка успешно принята!</h2>
+                <p style="color: #64748b; margin-bottom: 25px;">Мы уже получили уведомление и свяжемся с вами в течение 15 минут.</p>
+                <a href="/" style="display: inline-block; padding: 12px 24px; background: #f59e0b; color: #0f172a; text-decoration: none; border-radius: 6px; font-weight: bold;">Вернуться на сайт</a>
+            </div>
+        </div>
+        """
+
+
+@app.route('/privacy')
+def privacy():
+    return render_template('privacy.html')
+
+
+if __name__ == '__main__':
     app.run(debug=True)

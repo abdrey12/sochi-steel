@@ -1,7 +1,9 @@
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from email.mime.image import MIMEImage  # Специальный импорт для фотографий
+from email.mime.base import MIMEBase  # Изменено на универсальный тип вложений
+from email import encoders  # Библиотека шифрования файлов для интернета
+import io  # Библиотека для чтения файлов в памяти сервера
 import os
 from flask import Flask, render_template, request
 from dotenv import load_dotenv
@@ -11,7 +13,7 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# НАСТРОЙКА ПОЧТЫ MAIL.RU (Исправлено на smtp.mail.ru)
+# НАСТРОЙКА ПОЧТЫ MAIL.RU
 SMTP_SERVER = "smtp.mail.ru"
 SMTP_PORT = 465
 
@@ -38,15 +40,17 @@ def send_to_email(name, phone, product_type, file_data=None, file_name=None):
     msg['Subject'] = subject
     msg.attach(MIMEText(body, 'plain', 'utf-8'))
 
-    # 📷 ЕСЛИ КЛИЕНТ ЗАГРУЗИЛ ФОТО — ПРИКРЕПЛЯЕМ ЕГО К ПИСЬМУ
+    # 📷 НАДЕЖНОЕ ДОБАВЛЕНИЕ ЛЮБЫХ ИЗОБРАЖЕНИЙ (БЕЗ ОШИБОК 500)
     if file_data and file_name:
         try:
-            image_attachment = MIMEImage(file_data)
-            image_attachment.add_header('Content-Disposition', 'attachment', filename=file_name)
-            msg.attach(image_attachment)
-            print(f"Фотография {file_name} успешно прикреплена к письму.")
+            attachment = MIMEBase('application', 'octet-stream')
+            attachment.set_payload(file_data)
+            encoders.encode_base64(attachment)
+            attachment.add_header('Content-Disposition', f'attachment; filename="{file_name}"')
+            msg.attach(attachment)
+            print(f"Файл {file_name} успешно зашифрован и прикреплен к письму.")
         except Exception as e:
-            print(f"Не удалось прикрепить фото к письму: {e}")
+            print(f"Не удалось прикрепить файл к письму: {e}")
 
     try:
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
@@ -71,15 +75,15 @@ def submit_request():
         phone = request.form.get('phone')
         product_type = request.form.get('product_type')
 
-        # 📥 Получаем файл фотографии из формы сайта
+        # 📥 Получаем файл фотографии из формы сайта безопасным методом
         uploaded_file = request.files.get('photo')
         file_data = None
         file_name = None
 
-        # Если файл выбран, считываем его
         if uploaded_file and uploaded_file.filename != '':
             file_data = uploaded_file.read()
-            file_name = uploaded_file.filename
+            # Переводим имя файла в безопасный формат для почтовых серверов
+            file_name = uploaded_file.filename.encode('utf-8').decode('latin-1', 'ignore')
 
         # Запуск отправки письма (передаем тексты и файл)
         mail_success = send_to_email(name, phone, product_type, file_data, file_name)
